@@ -15,7 +15,7 @@ It's built on the same five-step structure as the "Automated Early Career Job Da
 | Step | Where it lives | What it does |
 |---|---|---|
 | **1. Brief** | `src/brief.js`, Brief tab | Who you are (degree, grad date, real experience, skills), up to 4 ranked tracks, location tiers, pay floors (base and OTE), and the rules. Start by **dragging and dropping your resume or LinkedIn profile** (see below). |
-| **2. Daily run** | `src/scheduler.js`, `src/cli.js` | Runs once a day at your chosen time. If today's run was missed, it catches up on start. |
+| **2. Automated refresh** | `src/scheduler.js`, `src/cli.js` | Runs on the schedule you picked in the questionnaire: daily, every weekday, twice a week (Mon & Thu), weekly on a chosen day, or manual only. If a scheduled run was missed, it catches up on start. |
 | **3. Search** | `src/sources/*` | Employer boards (Greenhouse, Lever, Ashby) come straight from the company's own careers page. Aggregators: The Muse (no key needed) and Adzuna (optional key). Demo listings work offline. |
 | **4. Verify + score** | `src/verify.js`, `src/score.js`, `src/rules.js` | Checks that a posting is still live. Scores every role the same way: experience fit 40%, track 30%, pay 20%, employment type 10% (you set the weights). Applies the exclusion rules. |
 | **5. Log + publish** | `src/pipeline.js`, `src/store.js`, Dashboard and Memory tabs | Keeps a run log, skips roles seen in the last 14 days unless they changed, logs run health, and condenses old runs into summaries. |
@@ -26,6 +26,19 @@ It's built on the same five-step structure as the "Automated Early Career Job Da
 - Built-in exclusions: Master's required, citizenship or clearance, CS degree only, stale or evergreen postings, commission-only or 1099 jobs, senior titles, too many years required, outside your locations, unpaid. On the Memory tab, set each one to **Exclude**, **Flag**, or **Off**.
 - **The app learns.** When you dismiss a role, you give a reason. Use the same reason 3 times and it becomes a standing rule. Dismiss the same company twice and it gets blocked.
 - Roles marked **Applied**, **Interviewing**, or **Offer** never expire.
+
+### The onboarding questionnaire (required)
+Every new user answers a short, fixed questionnaire before reaching the dashboard. It's defined once in `src/questionnaire.js` (versioned) and validated on the server, and the UI is generated from that same definition.
+
+| Step | Asks | Becomes |
+|---|---|---|
+| About you | Name, degree level, field of study, school | Profile; Master's/MBA and CS-degree screening |
+| Graduation timeline | Still in school or graduated, graduation month, when you can start | Grad date; roles wanting an immediate start get flagged |
+| Field interest | Up to 4 fields in priority order, role types (full-time, internship…), locations, remote | Ranked tracks, employment types, location tier 1 |
+| Experience | Years of relevant experience, kinds of experience, short summary, top skills | What counts as realistic vs. stretch; skills matching |
+| Refresh rate | Daily / every weekday / twice a week / weekly (+ day) / manual, and the time | The automated schedule |
+
+Then you review your answers and press **Finish & start searching**. Your first search runs right away. To change your answers later, use **Retake it** on the Brief tab; everything stays fine-tunable there too.
 
 ### Start from your resume or LinkedIn profile
 At the top of the Brief tab, drag and drop a resume or a LinkedIn profile PDF. On LinkedIn, open your profile, then **More → Save to PDF**. You can also click to choose a file, or paste the text.
@@ -81,8 +94,9 @@ npm run run-once
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/dashboard` | Top-strip stats, all roles, last run (health and excluded today), next run |
+| GET | `/api/dashboard` | Top-strip stats, all roles, last run (health and excluded today), next run, and the questionnaire (steps, saved answers, done) |
 | GET / PUT | `/api/brief` | Read or save the brief |
+| POST | `/api/questionnaire` | Submit questionnaire answers. Returns the updated brief, or `400` with `errors` per question |
 | POST | `/api/run` | Run the pipeline now |
 | PATCH | `/api/jobs/:id` | `{ status, notes }` |
 | POST | `/api/jobs/:id/dismiss` | `{ reason }`. Feeds the standing-rule learner |

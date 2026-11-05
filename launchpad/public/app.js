@@ -11,7 +11,7 @@ const list = (s) => String(s || '').split(/[,\n]/).map((x) => x.trim()).filter(B
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`/api${path}`, { method, headers: body !== undefined ? { 'content-type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { errors: data.errors });
   return data;
 }
 
@@ -47,7 +47,8 @@ function renderRunBox() {
   const last = d?.lastRun ? `Last run ${fmtDate(d.lastRun.finishedAt)}` : 'No runs yet';
   const next = d?.nextRunAt ? `Next ${fmtDate(d.nextRunAt, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Schedule off';
   $('#run-meta').innerHTML = `${esc(last)}<br>${esc(next)}`;
-  $('#run-now').disabled = !!d?.running;
+  $('#run-now').disabled = !!d?.running || !d?.questionnaire?.done;
+  $('#run-now').title = d?.questionnaire?.done ? '' : 'Answer the questionnaire first';
 }
 
 $('#run-now').addEventListener('click', async () => {
@@ -68,14 +69,15 @@ $('#run-now').addEventListener('click', async () => {
 });
 
 // ——— router ———
-const views = { dashboard: renderDashboard, brief: renderBrief, memory: renderMemory };
+const views = { dashboard: renderDashboard, brief: renderBrief, memory: renderMemory, welcome: renderWelcome };
 async function route() {
   const tab = (location.hash.slice(1) || 'dashboard').split('?')[0];
   const name = views[tab] ? tab : 'dashboard';
   $$('.tabs a').forEach((a) => (a.dataset.tab === name ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   try {
     if (!state.data || name === 'dashboard') await refresh();
-    if (name === 'dashboard' && !state.data.brief.completed && !location.hash) { location.hash = 'brief'; return; }
+    // The questionnaire is required: nothing else opens until it's answered.
+    if (name !== 'welcome' && !state.data.questionnaire.done) { location.hash = 'welcome'; return; }
     await views[name]();
   } catch (e) {
     view.innerHTML = `<div class="empty"><h3>Couldn’t load Launchpad</h3><p>${esc(e.message)}</p></div>`;
@@ -339,6 +341,7 @@ async function renderBrief(override = null) {
   view.innerHTML = `
     ${b.completed ? '' : `<section class="intro"><h2>Step 1: write your brief like a job description</h2><p>Except you’re the candidate. Be honest about your experience and specific about what you want. Every daily run reads this before it searches, and every role gets scored against it.</p></section>`}
     <div class="page-head"><div><h1>Your brief</h1><p>Who you are, what you want, where, and the rules.</p></div></div>
+    ${b.questionnaire ? `<p class="hint q-done">Questionnaire answered ${esc(fmtDate(b.questionnaire.completedAt, { month: 'short', day: 'numeric', year: 'numeric' }))} · <a href="#welcome">Retake it</a></p>` : ''}
     ${resumeSection()}
     ${override ? '<p class="unsaved" role="status">Resume details applied below — review them, then <b>Save brief</b>.</p>' : ''}
     <form id="brief-form" class="brief-layout" novalidate>
@@ -436,9 +439,10 @@ async function renderBrief(override = null) {
         </section>
 
         <section class="panel">
-          <h2>Daily run</h2>
+          <h2>Refresh rate</h2>
           <div class="row">
-            ${check('schedule.enabled', b.schedule.enabled, 'Run automatically every day')}
+            <label class="field"><span>Automated refresh</span><select name="schedule.frequency">${FREQ.map(([v, l]) => `<option value="${v}" ${b.schedule.frequency === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="field"><span>Day (weekly)</span><select name="schedule.day">${DAY_NAMES.map((d, i) => `<option value="${i}" ${Number(b.schedule.day) === i ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
             <label class="field"><span>Time (server’s local time)</span><input type="time" name="schedule.time" value="${esc(b.schedule.time)}"></label>
           </div>
         </section>
@@ -489,6 +493,156 @@ async function renderBrief(override = null) {
       await refresh();
       if (firstTime) { location.hash = 'dashboard'; $('#run-now').click(); } else renderBrief();
     } catch (e) { toast(e.message); }
+  });
+}
+
+const FREQ = [['daily', 'Daily'], ['weekdays', 'Every weekday'], ['twice-weekly', 'Twice a week (Mon & Thu)'], ['weekly', 'Weekly'], ['manual', 'Manual only']];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// ═════════════ QUESTIONNAIRE ═════════════
+// Rendered from the server's fixed definition (src/questionnaire.js). Required before anything else.
+const q = { step: 0, answers: null, errors: {} };
+
+const shown = (question, answers) => !question.showIf || Object.entries(question.showIf).every(([k, vals]) => vals.includes(answers[k]));
+
+function stepErrors(step, answers) {
+  const errors = {};
+  for (const question of step.questions) {
+    if (!shown(question, answers)) continue;
+    const v = answers[question.id];
+    const empty = v == null || v === '' || (Array.isArray(v) && !v.length);
+    if (question.required && empty) errors[question.id] = 'Please answer this one.';
+    else if (Array.isArray(v) && question.min && v.length < question.min) errors[question.id] = `Pick at least ${question.min}.`;
+  }
+  if (step.id === 'timeline' && answers.status === 'graduated' && answers.gradDate > new Date().toISOString().slice(0, 7)) errors.gradDate = 'You said you’ve graduated — pick a past month.';
+  return errors;
+}
+
+function renderWelcome() {
+  const Q = state.data.questionnaire;
+  if (!q.answers) q.answers = structuredClone(Q.answers);
+  const steps = Q.steps;
+  const review = q.step >= steps.length;
+  const firstTime = !Q.done;
+  view.innerHTML = `
+    <div class="wizard">
+      <aside class="wizard-steps" aria-label="Questionnaire progress">
+        <p class="eyebrow">${firstTime ? 'Welcome to Launchpad' : 'Retake the questionnaire'}</p>
+        <ol>${[...steps, { id: 'review', title: 'Review & start' }].map((s, i) => `<li class="${i === q.step ? 'current' : i < q.step ? 'done' : ''}" ${i === q.step ? 'aria-current="step"' : ''}><span>${i < q.step ? '✓' : i + 1}</span>${esc(s.title)}</li>`).join('')}</ol>
+        <p class="hint">Takes about two minutes. Your answers become your Brief, and you can fine-tune it any time.</p>
+      </aside>
+      <section class="wizard-card" aria-labelledby="q-title">
+        ${review ? reviewStep(steps) : questionStep(steps[q.step])}
+      </section>
+    </div>`;
+  bindWelcome(steps);
+  $('#q-title')?.focus();
+}
+
+function questionStep(step) {
+  const a = q.answers;
+  const err = (id) => (q.errors[id] ? `<p class="q-error" id="err-${id}">${esc(q.errors[id])}</p>` : '');
+  const desc = (id) => (q.errors[id] ? `aria-describedby="err-${id}" aria-invalid="true"` : '');
+  const body = step.questions.filter((x) => shown(x, a)).map((x) => {
+    const v = a[x.id];
+    const lbl = `${esc(x.label)}${x.required ? '' : ''}`;
+    if (x.type === 'radio') {
+      return `<fieldset class="q" ${desc(x.id)}><legend>${lbl}</legend><div class="opts ${x.options.length > 4 ? 'opts-grid' : ''}">${x.options.map((o) => `<label class="opt"><input type="radio" name="${x.id}" value="${esc(o.value)}" ${String(v) === o.value ? 'checked' : ''}><span><b>${esc(o.label)}</b>${o.hint ? `<small>${esc(o.hint)}</small>` : ''}</span></label>`).join('')}</div>${err(x.id)}</fieldset>`;
+    }
+    if (x.type === 'checks' || x.type === 'rank') {
+      const sel = Array.isArray(v) ? v : [];
+      return `<fieldset class="q" ${desc(x.id)}><legend>${lbl}${x.type === 'rank' ? ` <small class="hint">${sel.length}/${x.max} picked, in the order you click</small>` : ''}</legend><div class="chips-pick">${x.options.map((o) => {
+        const i = sel.indexOf(o.value);
+        return `<button type="button" class="pick ${i >= 0 ? 'on' : ''}" data-pick="${x.id}" data-value="${esc(o.value)}" aria-pressed="${i >= 0}">${x.type === 'rank' && i >= 0 ? `<span class="rank-n">${i + 1}</span>` : ''}${esc(o.label)}</button>`;
+      }).join('')}</div>${err(x.id)}</fieldset>`;
+    }
+    if (x.type === 'select') {
+      return `<label class="field q"><span>${lbl}</span><select data-q="${x.id}" ${desc(x.id)}><option value="">Choose…</option>${x.options.map((o) => `<option value="${esc(o.value)}" ${String(v) === o.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>${err(x.id)}</label>`;
+    }
+    const input = x.type === 'textarea'
+      ? `<textarea data-q="${x.id}" rows="3" placeholder="${esc(x.placeholder || '')}" ${desc(x.id)}>${esc(v || '')}</textarea>`
+      : `<input type="${x.type}" data-q="${x.id}" value="${esc(v || '')}" placeholder="${esc(x.placeholder || '')}" ${desc(x.id)}>`;
+    return `<label class="field q"><span>${lbl}</span>${input}${err(x.id)}</label>`;
+  }).join('');
+  return `<h1 id="q-title" tabindex="-1">${esc(step.title)}</h1><p class="q-intro">${esc(step.intro)}</p>
+    <form id="q-form" novalidate>${body}
+      <div class="q-nav">
+        ${q.step > 0 ? '<button class="btn" type="button" id="q-back">Back</button>' : '<span></span>'}
+        <button class="btn btn-dark" type="submit">Next</button>
+      </div>
+    </form>`;
+}
+
+function reviewStep(steps) {
+  const a = q.answers;
+  const show = (x) => {
+    const v = a[x.id];
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '<span class="hint">—</span>';
+    const label = (val) => x.options?.find((o) => o.value === String(val))?.label || val;
+    if (Array.isArray(v)) return esc(v.map(label).join(x.type === 'rank' ? ' → ' : ', '));
+    if (x.type === 'month') return esc(new Date(`${v}-15`).toLocaleDateString([], { month: 'long', year: 'numeric' }));
+    return esc(label(v));
+  };
+  return `<h1 id="q-title" tabindex="-1">Review & start</h1><p class="q-intro">This becomes your Brief. Every refresh scores roles against it.</p>
+    ${steps.map((s, i) => `<div class="q-review"><div class="q-review-head"><h2>${esc(s.title)}</h2><button class="btn btn-ghost btn-sm" type="button" data-goto="${i}">Edit</button></div>
+      <dl>${s.questions.filter((x) => shown(x, a)).map((x) => `<dt>${esc(x.label)}</dt><dd>${show(x)}</dd>`).join('')}</dl></div>`).join('')}
+    ${q.serverError ? `<p class="q-error">${esc(q.serverError)}</p>` : ''}
+    <div class="q-nav"><button class="btn" type="button" id="q-back">Back</button><button class="btn btn-accent" type="button" id="q-finish">${state.data.questionnaire.done ? 'Save answers' : 'Finish & start searching'}</button></div>`;
+}
+
+function bindWelcome(steps) {
+  const form = $('#q-form');
+  const step = steps[q.step];
+  const refreshStep = () => { renderWelcome(); };
+  if (form) {
+    form.addEventListener('input', (ev) => {
+      const el = ev.target;
+      if (el.dataset.q) q.answers[el.dataset.q] = el.value;
+      if (el.type === 'radio') { q.answers[el.name] = el.value; delete q.errors[el.name]; if (step.questions.some((x) => x.showIf && el.name in x.showIf)) { refreshStep(); $(`input[name="${el.name}"]:checked`)?.focus(); } }
+    });
+    form.addEventListener('change', (ev) => { if (ev.target.tagName === 'SELECT') q.answers[ev.target.dataset.q] = ev.target.value; });
+    form.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-pick]');
+      if (!b) return;
+      const x = step.questions.find((y) => y.id === b.dataset.pick);
+      const cur = Array.isArray(q.answers[x.id]) ? [...q.answers[x.id]] : [];
+      const i = cur.indexOf(b.dataset.value);
+      if (i >= 0) cur.splice(i, 1);
+      else if (x.max && cur.length >= x.max) { toast(`Up to ${x.max} — unpick one first.`); return; }
+      else cur.push(b.dataset.value);
+      q.answers[x.id] = cur;
+      delete q.errors[x.id];
+      refreshStep();
+      $(`[data-pick="${x.id}"][data-value="${CSS.escape(b.dataset.value)}"]`)?.focus();
+    });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      q.errors = stepErrors(step, q.answers);
+      if (Object.keys(q.errors).length) { renderWelcome(); $('.q-error')?.closest('.q')?.querySelector('input,select,textarea,button')?.focus(); return; }
+      q.step++;
+      renderWelcome();
+    });
+  }
+  $('#q-back')?.addEventListener('click', () => { q.errors = {}; q.serverError = null; q.step = Math.max(0, q.step - 1); renderWelcome(); });
+  $$('[data-goto]').forEach((b) => b.addEventListener('click', () => { q.step = Number(b.dataset.goto); renderWelcome(); }));
+  $('#q-finish')?.addEventListener('click', async (ev) => {
+    const firstTime = !state.data.questionnaire.done;
+    ev.target.disabled = true;
+    try {
+      await api('/questionnaire', { method: 'POST', body: q.answers });
+      q.answers = null; q.step = 0; q.errors = {}; q.serverError = null;
+      await refresh();
+      if (firstTime) { location.hash = 'dashboard'; $('#run-now').click(); toast('You’re set. Running your first search…'); }
+      else { location.hash = 'brief'; toast('Answers saved to your Brief.'); }
+    } catch (e) {
+      q.serverError = e.message;
+      if (e.errors) {
+        const idx = state.data.questionnaire.steps.findIndex((s) => s.questions.some((x) => e.errors[x.id]));
+        if (idx >= 0) { q.step = idx; q.errors = e.errors; q.serverError = null; }
+      }
+      ev.target.disabled = false;
+      renderWelcome();
+    }
   });
 }
 

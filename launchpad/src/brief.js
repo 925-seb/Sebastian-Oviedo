@@ -78,7 +78,8 @@ export function defaultBrief() {
       muse: { enabled: true, pages: 3 },
       adzuna: { enabled: false, country: 'us', where: '' }, // keys via ADZUNA_APP_ID / ADZUNA_APP_KEY
     },
-    schedule: { enabled: true, time: '07:00' },
+    schedule: { enabled: true, frequency: 'daily', time: '07:00', day: 1 }, // frequency: daily | weekdays | twice-weekly | weekly | manual
+    questionnaire: null, // { version, completedAt, answers } once the onboarding questionnaire is done
   };
 }
 
@@ -122,6 +123,10 @@ export function normalizeBrief(input = {}) {
       .map((b) => ({ token: b.token, name: String(b.name || '').slice(0, 80) }));
   }
   if (!/^\d{2}:\d{2}$/.test(brief.schedule.time)) brief.schedule.time = '07:00';
+  if (!['daily', 'weekdays', 'twice-weekly', 'weekly', 'manual'].includes(brief.schedule.frequency)) brief.schedule.frequency = 'daily';
+  if (input.schedule && input.schedule.enabled === false && !input.schedule.frequency) brief.schedule.frequency = 'manual'; // briefs saved before frequencies existed
+  brief.schedule.enabled = brief.schedule.frequency !== 'manual';
+  brief.schedule.day = clampNum(brief.schedule.day, 0, 6, 1);
   return brief;
 }
 

@@ -32,13 +32,18 @@ async function readBody(req, limit = 1_000_000) {
 const routes = [
   ['GET', /^\/api\/dashboard$/, async () => {
     const d = await svc.getDashboard();
-    d.nextRunAt = d.brief.schedule.enabled ? nextRunAt(d.brief.schedule.time).toISOString() : null;
+    d.nextRunAt = nextRunAt(d.brief.schedule)?.toISOString() || null;
     return d;
   }],
   ['GET', /^\/api\/brief$/, () => svc.getBrief()],
   ['PUT', /^\/api\/brief$/, async (req) => {
     const brief = await svc.saveBrief(await readBody(req));
     startScheduler(log); // re-arm with the (possibly new) time
+    return brief;
+  }],
+  ['POST', /^\/api\/questionnaire$/, async (req) => {
+    const brief = await svc.submitQuestionnaire(await readBody(req));
+    startScheduler(log); // the refresh rate may have changed
     return brief;
   }],
   ['POST', /^\/api\/run$/, async () => {
@@ -84,7 +89,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const status = e.status || 500;
     if (status === 500) console.error(e);
-    send(res, status, { error: status === 500 ? 'Something went wrong' : e.message });
+    send(res, status, { error: status === 500 ? 'Something went wrong' : e.message, ...(e.errors && { errors: e.errors }) });
   }
 });
 

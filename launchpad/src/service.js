@@ -6,6 +6,7 @@ import { daysBetween, normalizeKey } from './util.js';
 import * as store from './store.js';
 import { extractText, MAX_BYTES } from './extract.js';
 import { parseResume } from './resume.js';
+import { STEPS, QUESTIONNAIRE_VERSION, applyAnswers, answersFromBrief } from './questionnaire.js';
 
 export async function getBrief() {
   const saved = await store.load('brief', null);
@@ -25,6 +26,7 @@ function demoBrief(brief) {
   ];
   brief.employment.earliestStart = '2027-06';
   for (const k of Object.keys(brief.sources)) brief.sources[k].enabled = k === 'demo';
+  brief.questionnaire = { version: QUESTIONNAIRE_VERSION, completedAt: new Date().toISOString(), answers: answersFromBrief(brief) };
   return brief;
 }
 
@@ -67,6 +69,7 @@ export async function getDashboard() {
     jobs: sorted,
     lastRun: lastRun && { id: lastRun.id, startedAt: lastRun.startedAt, finishedAt: lastRun.finishedAt, status: lastRun.status, counts: lastRun.counts, health: lastRun.health, warnings: lastRun.warnings, excluded: lastRun.excluded },
     running: isRunning(),
+    questionnaire: { version: QUESTIONNAIRE_VERSION, steps: STEPS, answers: answersFromBrief(brief), done: brief.questionnaire?.version === QUESTIONNAIRE_VERSION },
     meta: { statuses: STATUSES, protectedStatuses: PROTECTED_STATUSES, dismissReasons: DISMISS_REASONS, trackPresets: TRACK_PRESETS },
   };
 }
@@ -202,4 +205,13 @@ export async function uploadResume({ fileName = '', data, text } = {}) {
 export async function deleteResume() {
   await store.save('resume', null);
   return { ok: true };
+}
+
+// ——— Onboarding questionnaire ———
+
+/** Validate the answers, write them into the brief, and save. Throws 400 with per-question errors. */
+export async function submitQuestionnaire(answers) {
+  const brief = applyAnswers(await getBrief(), answers || {});
+  await store.save('brief', brief);
+  return brief;
 }
