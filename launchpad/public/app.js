@@ -47,6 +47,8 @@ function renderRunBox() {
   const last = d?.lastRun ? `Last run ${fmtDate(d.lastRun.finishedAt)}` : 'No runs yet';
   const next = d?.nextRunAt ? `Next ${fmtDate(d.nextRunAt, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Schedule off';
   $('#run-meta').innerHTML = `${esc(last)}<br>${esc(next)}`;
+  // During the required questionnaire there is nowhere else to go yet, so hide the tabs and run box.
+  document.body.classList.toggle('onboarding', !!d && !d.questionnaire?.done);
   $('#run-now').disabled = !!d?.running || !d?.questionnaire?.done;
   $('#run-now').title = d?.questionnaire?.done ? '' : 'Answer the questionnaire first';
 }
@@ -127,7 +129,7 @@ function renderDashboard() {
 
     <section class="stats" aria-label="Summary">
       <div class="stat accent"><b>${d.stats.newToday}</b><span>New today</span></div>
-      <div class="stat"><b>${d.stats.active}</b><span>Total active</span></div>
+      <div class="stat"><b>${d.stats.active}</b><span>Active</span></div>
       <div class="stat"><b>${d.stats.applied}</b><span>Applied</span></div>
       <div class="stat"><b>${d.stats.interviewing}</b><span>Interviewing</span></div>
     </section>
@@ -136,11 +138,14 @@ function renderDashboard() {
 
     <section class="filters" aria-label="Filters">
       <label class="field search"><span>Search</span><input type="search" data-filter="q" value="${esc(f.q)}" placeholder="Company, role, or city"></label>
+      <button type="button" class="btn filter-toggle" aria-expanded="false" aria-controls="filter-more">Filters</button>
+      <div id="filter-more" class="filter-more">
       ${sel('track', 'Track', opt('', 'All tracks', f.track) + tracks.map((t) => opt(t, t, f.track)).join(''))}
       ${sel('fit', 'Fit', opt('', 'Any fit', f.fit) + ['Strong', 'Realistic', 'Stretch'].map((t) => opt(t, t, f.fit)).join(''))}
       ${sel('pay', 'Pay', opt('', 'Any pay', f.pay) + opt('meets', 'Meets my floor', f.pay) + opt('listed', 'Pay listed', f.pay))}
       ${sel('loc', 'Location', opt('', 'Anywhere', f.loc) + tiers.map((t) => opt(t, t, f.loc)).join(''))}
       ${sel('status', 'Status', opt('active', 'Active', f.status) + opt('', 'All', f.status) + d.meta.statuses.map((s) => opt(s, s, f.status)).join(''))}
+      </div>
     </section>
 
     <div class="page-head" style="margin-bottom:12px">
@@ -158,9 +163,24 @@ function renderDashboard() {
     state.filters[el.dataset.filter] = el.value;
     saveFilters();
     renderCards();
+    updateFilterToggle();
   }));
+  $('.filter-toggle', view).addEventListener('click', (e) => {
+    const open = $('.filters', view).classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+  updateFilterToggle();
   bindCards($('#cards'));
   renderCards();
+}
+
+// Phone layout folds the filter dropdowns behind one button; its label counts the ones in use.
+function updateFilterToggle() {
+  const btn = $('.filter-toggle', view);
+  if (!btn) return;
+  const f = state.filters;
+  const n = ['track', 'fit', 'pay', 'loc'].filter((k) => f[k]).length + (f.status !== 'active' ? 1 : 0);
+  btn.textContent = n ? `Filters (${n})` : 'Filters';
 }
 
 function healthBanner(run) {

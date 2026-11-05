@@ -89,6 +89,9 @@ label { display: block; }
 /* ——— filters ——— */
 .filters { display: grid; grid-template-columns: 2fr repeat(5, 1fr); gap: 10px; margin-bottom: 18px; }
 .filters .field > span { font-size: 12px; }
+.filter-more { display: contents; }
+.filter-toggle { display: none; }
+body.onboarding .tabs, body.onboarding .run-box { display: none; }
 
 /* ——— cards ——— */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; align-items: start; }
@@ -202,8 +205,19 @@ td select { width: auto; padding: 4px 8px; }
   .run-meta { text-align: left; }
   .tabs { order: 3; width: 100%; }
   .wrap { padding: 20px 16px 80px; }
-  .stats { grid-template-columns: repeat(2, 1fr); }
-  .filters { grid-template-columns: 1fr 1fr; }
+  /* Phones: get people to the roles fast — one compact stats row, quiet run health, folded filters. */
+  .page-head > div > p { display: none; }
+  .stats { grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { padding: 10px 8px; text-align: center; }
+  .stat b { font-size: 22px; }
+  .stat span { font-size: 10px; letter-spacing: .02em; }
+  .health { padding: 10px 14px; margin-bottom: 12px; }
+  .health.ok .hint { display: none; }
+  .filters { grid-template-columns: 1fr auto; align-items: end; }
+  .filters .search { grid-column: auto; }
+  .filter-toggle { display: inline-flex; }
+  .filter-more { display: none; }
+  .filters.open .filter-more { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr 1fr; gap: 10px; }
   .grid { grid-template-columns: 1fr; }
   .page-head h1 { font-size: 28px; }
   .weight { grid-template-columns: 100px 1fr 40px; }
