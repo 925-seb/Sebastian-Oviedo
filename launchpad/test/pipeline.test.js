@@ -97,3 +97,18 @@ test('csv export neutralises formulas', async () => {
   const csv = await svc.exportCsv();
   assert.match(csv.split('\n')[0], /^Company,Role/);
 });
+
+test('resume upload: base64 file → stored suggestions; paste works too', async () => {
+  const { readFileSync } = await import('node:fs');
+  const data = readFileSync(new URL('./fixtures/sample-resume.docx', import.meta.url)).toString('base64');
+  const r = await svc.uploadResume({ fileName: 'sample-resume.docx', data });
+  assert.equal(r.type, 'docx');
+  assert.equal(r.extracted.name, 'Jordan Rivera');
+  assert.equal((await svc.getResume()).fileName, 'sample-resume.docx');
+  await assert.rejects(svc.uploadResume({ text: 'too short' }), /Not enough text/);
+  const pasted = await svc.uploadResume({ text: 'Taylor Nguyen\nSkills\nSQL, Excel, Tableau, HubSpot\nEducation\nUC Davis College of Agricultural Sciences, B.S. Economics, June 2026' });
+  assert.equal(pasted.type, 'text');
+  assert.ok(pasted.extracted.skills.includes('SQL'));
+  await svc.deleteResume();
+  assert.equal(await svc.getResume(), null);
+});

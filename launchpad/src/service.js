@@ -4,6 +4,8 @@ import { DISMISS_REASONS, RULES, modeFor } from './rules.js';
 import { runPipeline } from './pipeline.js';
 import { daysBetween, normalizeKey } from './util.js';
 import * as store from './store.js';
+import { extractText, MAX_BYTES } from './extract.js';
+import { parseResume } from './resume.js';
 
 export async function getBrief() {
   const saved = await store.load('brief', null);
@@ -167,4 +169,37 @@ export async function exportCsv() {
   const head = ['Company', 'Role', 'Location', 'Track', 'Fit', 'Score', 'Pay', 'Status', 'First seen', 'Posted', 'Link', 'Notes'];
   const rows = jobs.map((j) => [j.company, j.title, j.location, j.evaluation?.track, j.evaluation?.fit, j.evaluation?.total, j.evaluation?.pay?.label, j.status, (j.firstSeen || '').slice(0, 10), (j.postedAt || '').slice(0, 10), j.url, j.notes]);
   return [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
+}
+
+// ——— Resume / profile ———
+
+const resumeView = (r) => r && { fileName: r.fileName, type: r.type, uploadedAt: r.uploadedAt, characters: r.text.length, preview: r.text.slice(0, 700), extracted: r.extracted };
+
+export async function getResume() {
+  return resumeView(await store.load('resume', null));
+}
+
+/**
+ * Accepts { fileName, data } (base64 file) or { text } (pasted). Extracts text locally, parses it into
+ * suggested Brief fields, and keeps it on disk. Nothing is applied to the Brief until the user confirms.
+ */
+export async function uploadResume({ fileName = '', data, text } = {}) {
+  let type = 'text';
+  let body = text;
+  if (data) {
+    const buf = Buffer.from(String(data), 'base64');
+    if (!buf.length) throw Object.assign(new Error('The file is empty'), { status: 400 });
+    if (buf.length > MAX_BYTES) throw Object.assign(new Error('File is larger than 5 MB'), { status: 413 });
+    ({ type, text: body } = extractText(buf, fileName));
+  }
+  body = String(body || '').slice(0, 200_000).trim();
+  if (body.length < 40) throw Object.assign(new Error('Not enough text to read — is this a resume?'), { status: 422 });
+  const record = { fileName: String(fileName || 'Pasted text').slice(0, 120), type, uploadedAt: new Date().toISOString(), text: body, extracted: parseResume(body) };
+  await store.save('resume', record);
+  return resumeView(record);
+}
+
+export async function deleteResume() {
+  await store.save('resume', null);
+  return { ok: true };
 }

@@ -43,7 +43,10 @@ export function trackAlignment(job, brief) {
   });
   const industry = brief.coreIndustries.find((i) => has(`${job.company} ${desc}`, i));
   if (industry && best.score > 0) best.score = Math.min(1, best.score + 0.1);
-  return { score: best.score, trackId: best.track?.id || null, trackLabel: best.track?.label || null, industry: industry || null, salesComp: !!best.track?.salesComp };
+  // Skills from your resume that the posting asks for: two or more = a small bonus.
+  const skillsMatched = (brief.profile.skills || []).filter((k) => k.length > 1 && has(`${title}\n${desc}`, k)).slice(0, 8);
+  if (skillsMatched.length >= 2 && best.score > 0) best.score = Math.min(1, best.score + (skillsMatched.length >= 4 ? 0.15 : 0.1));
+  return { score: best.score, trackId: best.track?.id || null, trackLabel: best.track?.label || null, industry: industry || null, salesComp: !!best.track?.salesComp, skillsMatched };
 }
 
 /** Compensation vs. the brief's floors: base salary, or OTE for sales-comp tracks. */
@@ -103,6 +106,7 @@ export function scoreJob(job, brief) {
     track: track.trackLabel,
     trackId: track.trackId,
     industry: track.industry,
+    skillsMatched: track.skillsMatched,
     pay: { label: comp.label, meets: comp.meets, ...(comp.comp || {}) },
     employmentType: emp.type,
     ageDays: age,

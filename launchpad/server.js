@@ -17,12 +17,12 @@ const send = (res, status, body, type = 'application/json') => {
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 };
 
-async function readBody(req) {
+async function readBody(req, limit = 1_000_000) {
   let size = 0;
   const chunks = [];
   for await (const c of req) {
     size += c.length;
-    if (size > 1_000_000) throw Object.assign(new Error('Body too large'), { status: 413 });
+    if (size > limit) throw Object.assign(new Error('Body too large'), { status: 413 });
     chunks.push(c);
   }
   if (!chunks.length) return {};
@@ -49,6 +49,9 @@ const routes = [
   ['PATCH', /^\/api\/jobs\/([^/]+)$/, async (req, [id]) => (await svc.updateJob(decodeURIComponent(id), await readBody(req))) || notFound()],
   ['POST', /^\/api\/jobs\/([^/]+)\/dismiss$/, async (req, [id]) => (await svc.dismissJob(decodeURIComponent(id), (await readBody(req)).reason)) || notFound()],
   ['GET', /^\/api\/memory$/, () => svc.getMemory()],
+  ['GET', /^\/api\/resume$/, () => svc.getResume()],
+  ['POST', /^\/api\/resume$/, async (req) => svc.uploadResume(await readBody(req, 7_500_000))], // base64 of a ≤5 MB file
+  ['DELETE', /^\/api\/resume$/, () => svc.deleteResume()],
   ['PATCH', /^\/api\/rules\/([^/]+)$/, async (req, [id]) => svc.setRuleMode(id, (await readBody(req)).mode)],
 ];
 

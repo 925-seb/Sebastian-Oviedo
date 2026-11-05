@@ -74,7 +74,7 @@ async function route() {
   const name = views[tab] ? tab : 'dashboard';
   $$('.tabs a').forEach((a) => (a.dataset.tab === name ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   try {
-    if (!state.data) await refresh();
+    if (!state.data || name === 'dashboard') await refresh();
     if (name === 'dashboard' && !state.data.brief.completed && !location.hash) { location.hash = 'brief'; return; }
     await views[name]();
   } catch (e) {
@@ -228,6 +228,7 @@ function card(j) {
       <div class="score" title="Weighted fit score"><b>${e.total ?? '–'}</b><span>fit</span></div>
     </div>
     <div class="badges">${badges}</div>
+    ${e.skillsMatched?.length ? `<p class="skills-hit">Matches your skills: ${e.skillsMatched.slice(0, 5).map(esc).join(', ')}</p>` : ''}
     ${(j.flags || []).length ? `<ul class="flags">${j.flags.map((f) => `<li>${esc(f.reason)}</li>`).join('')}</ul>` : ''}
     ${j.status === 'Dismissed' && j.dismissReason ? `<p class="hint">Dismissed: ${esc(j.dismissReason)}</p>` : ''}
     ${open ? `<div class="details">
@@ -328,8 +329,9 @@ function patchLocal(job, rerender = true) {
 // ═════════════ BRIEF ═════════════
 let draft = null;
 
-function renderBrief() {
-  draft = structuredClone(state.data.brief);
+async function renderBrief(override = null) {
+  if (state.resume === undefined) state.resume = await api('/resume').catch(() => null);
+  draft = structuredClone(override || state.data.brief);
   const b = draft;
   const p = b.profile;
   const presets = state.data.meta.trackPresets;
@@ -337,6 +339,8 @@ function renderBrief() {
   view.innerHTML = `
     ${b.completed ? '' : `<section class="intro"><h2>Step 1: write your brief like a job description</h2><p>Except you’re the candidate. Be honest about your experience and specific about what you want. Every daily run reads this before it searches, and every role gets scored against it.</p></section>`}
     <div class="page-head"><div><h1>Your brief</h1><p>Who you are, what you want, where, and the rules.</p></div></div>
+    ${resumeSection()}
+    ${override ? '<p class="unsaved" role="status">Resume details applied below — review them, then <b>Save brief</b>.</p>' : ''}
     <form id="brief-form" class="brief-layout" novalidate>
       <div>
         <section class="panel">
@@ -352,6 +356,7 @@ function renderBrief() {
             <label class="field"><span>Years of relevant experience</span><input type="number" min="0" max="50" step="0.5" name="profile.yearsExperience" value="${esc(p.yearsExperience)}"></label>
           </div>
           <label class="field"><span>Real experience to match against</span><textarea name="profile.experienceSummary" rows="3" placeholder="Jobs, internships, leadership — what you actually did.">${esc(p.experienceSummary)}</textarea></label>
+          <label class="field"><span>Skills</span><input type="text" name="profile.skills" value="${esc((p.skills || []).join(', '))}" placeholder="SQL, Excel, Salesforce, Spanish"><small>Postings that ask for two or more of these get a boost on track alignment.</small></label>
           <div class="row">
             ${check('profile.hasMasters', p.hasMasters, 'I have a Master’s / MBA')}
             ${check('profile.hasCSDegree', p.hasCSDegree, 'My degree is in Computer Science')}
@@ -471,6 +476,7 @@ function renderBrief() {
     renderTracks();
   });
   $('#brief-reset').addEventListener('click', () => renderBrief());
+  bindResume();
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const firstTime = !state.data.brief.completed;
@@ -483,6 +489,155 @@ function renderBrief() {
       await refresh();
       if (firstTime) { location.hash = 'dashboard'; $('#run-now').click(); } else renderBrief();
     } catch (e) { toast(e.message); }
+  });
+}
+
+// ——— Resume / profile drag & drop ———
+const RESUME_TYPES = /\.(pdf|docx|txt|md)$/i;
+const MAX_RESUME = 5 * 1024 * 1024;
+
+function resumeSection() {
+  const r = state.resume;
+  return `<section class="drop ${r ? 'compact' : ''}" id="drop" tabindex="0" role="button" aria-describedby="drop-hint" aria-label="Upload your resume or LinkedIn profile: drop a file here or press Enter to choose one">
+      <input type="file" id="resume-file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden>
+      <svg class="drop-icon" viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><rect x="9" y="4" width="30" height="40" rx="4" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M16 15h16M16 21h16M16 27h9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="35" cy="36" r="9" fill="var(--orange)"/><path d="M35 41v-9m-4 4 4-4 4 4" stroke="var(--navy)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="drop-text">
+        ${r ? `<h2>${esc(r.fileName)} <span class="hint">· read ${esc(fmtDate(r.uploadedAt, { month: 'short', day: 'numeric' }))}</span></h2>
+          <p id="drop-hint">Drop a newer resume or LinkedIn profile here to update your brief.</p>`
+        : `<h2>Start from your resume or LinkedIn profile</h2>
+          <p id="drop-hint">Drag and drop a PDF, DOCX or TXT (up to 5 MB). It’s read on your own Launchpad server and never sent anywhere else. On LinkedIn: your profile → <b>More</b> → <b>Save to PDF</b>.</p>`}
+      </div>
+      <div class="drop-actions">
+        <button class="btn btn-dark btn-sm" type="button" id="pick-file">${r ? 'Replace' : 'Choose file'}</button>
+        ${r ? '<button class="btn btn-sm" type="button" id="review-resume">Review suggestions</button><button class="btn btn-ghost btn-sm" type="button" id="remove-resume">Remove</button>' : '<button class="btn btn-ghost btn-sm" type="button" id="paste-toggle">Paste text instead</button>'}
+      </div>
+      <div class="drop-overlay" aria-hidden="true">Drop to read it</div>
+    </section>
+    <div id="paste-box" class="panel" hidden>
+      <label class="field"><span>Paste your resume or profile text</span><textarea id="paste-text" rows="8"></textarea></label>
+      <div><button class="btn btn-dark btn-sm" type="button" id="paste-read">Read it</button></div>
+    </div>
+    <div id="resume-review"></div>`;
+}
+
+function bindResume() {
+  const drop = $('#drop');
+  const input = $('#resume-file');
+  const pick = () => input.click();
+  $('#pick-file').addEventListener('click', (ev) => { ev.stopPropagation(); pick(); });
+  drop.addEventListener('click', (ev) => { if (!ev.target.closest('button')) pick(); });
+  drop.addEventListener('keydown', (ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === drop) { ev.preventDefault(); pick(); } });
+  input.addEventListener('change', () => { if (input.files[0]) uploadResumeFile(input.files[0]); input.value = ''; });
+  $('#paste-toggle')?.addEventListener('click', (ev) => { ev.stopPropagation(); const box = $('#paste-box'); box.hidden = !box.hidden; if (!box.hidden) $('#paste-text').focus(); });
+  $('#paste-read')?.addEventListener('click', () => sendResume({ text: $('#paste-text').value, fileName: 'Pasted text' }));
+  $('#review-resume')?.addEventListener('click', (ev) => { ev.stopPropagation(); showReview(); });
+  $('#remove-resume')?.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    try { await api('/resume', { method: 'DELETE', body: {} }); state.resume = null; toast('Resume removed from Launchpad.'); renderBrief(collectBrief($('#brief-form'))); } catch (e) { toast(e.message); }
+  });
+  if (state.showReview) { state.showReview = false; showReview(); }
+}
+
+// Page-wide drag & drop: dropping anywhere on the Brief tab reads the file (and never navigates away).
+let dragDepth = 0;
+const onBrief = () => (location.hash || '').startsWith('#brief') && $('#drop');
+window.addEventListener('dragenter', (ev) => {
+  if (![...(ev.dataTransfer?.types || [])].includes('Files')) return;
+  ev.preventDefault();
+  if (onBrief() && ++dragDepth === 1) $('#drop').classList.add('dragging');
+});
+window.addEventListener('dragover', (ev) => { if ([...(ev.dataTransfer?.types || [])].includes('Files')) { ev.preventDefault(); ev.dataTransfer.dropEffect = onBrief() ? 'copy' : 'none'; } });
+window.addEventListener('dragleave', () => { if (onBrief() && --dragDepth <= 0) { dragDepth = 0; $('#drop').classList.remove('dragging'); } });
+window.addEventListener('drop', (ev) => {
+  if (![...(ev.dataTransfer?.types || [])].includes('Files')) return;
+  ev.preventDefault();
+  dragDepth = 0;
+  $('#drop')?.classList.remove('dragging');
+  if (!onBrief()) { toast('Open the Brief tab to drop your resume.'); return; }
+  const file = ev.dataTransfer.files[0];
+  if (file) uploadResumeFile(file);
+});
+
+function uploadResumeFile(file) {
+  if (!RESUME_TYPES.test(file.name)) { toast('Use a PDF, DOCX or TXT file.'); return; }
+  if (file.size > MAX_RESUME) { toast('That file is over 5 MB.'); return; }
+  const reader = new FileReader();
+  reader.onload = () => sendResume({ fileName: file.name, data: String(reader.result).split(',')[1] || '' });
+  reader.onerror = () => toast('Couldn’t read that file.');
+  reader.readAsDataURL(file);
+}
+
+async function sendResume(payload) {
+  const drop = $('#drop');
+  drop?.classList.add('busy');
+  drop?.setAttribute('aria-busy', 'true');
+  try {
+    state.resume = await api('/resume', { method: 'POST', body: payload });
+    state.showReview = true;
+    await renderBrief(collectBrief($('#brief-form'))); // keep any unsaved edits
+    toast(`Read ${state.resume.fileName}. Pick what to apply.`);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    drop?.classList.remove('busy');
+    drop?.removeAttribute('aria-busy');
+  }
+}
+
+function showReview() {
+  const r = state.resume;
+  if (!r) return;
+  const x = r.extracted || {};
+  const cur = collectBrief($('#brief-form'));
+  const p = cur.profile;
+  const fmtGrad = (v) => (v ? new Date(`${v}-15`).toLocaleDateString([], { month: 'long', year: 'numeric' }) : '—');
+  const rows = [];
+  const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+  const row = (key, label, now, next, preChecked) => { if (!same(now, next)) rows.push({ key, label, now, next, checked: preChecked }); };
+  if (x.name) row('name', 'Name', p.name, x.name, !p.name);
+  if (x.school) row('school', 'School', p.school, x.school, !p.school);
+  if (x.degree) row('degree', 'Degree', p.degree, x.degree, !p.degree || p.degree === 'B.S.');
+  if (x.major) row('major', 'Major', p.major, x.major, !p.major);
+  if (x.gradDate) row('gradDate', 'Graduation', fmtGrad(p.gradDate), fmtGrad(x.gradDate), !p.gradDate);
+  if (x.yearsExperience != null && x.yearsExperience !== Number(p.yearsExperience)) row('yearsExperience', 'Years of experience', p.yearsExperience, `${x.yearsExperience} (from your dates — count only relevant work)`, false);
+  if (x.experienceSummary) row('experienceSummary', 'Experience', p.experienceSummary, x.experienceSummary, !p.experienceSummary);
+  const newSkills = (x.skills || []).filter((k) => !(p.skills || []).some((s) => s.toLowerCase() === k.toLowerCase()));
+  if (newSkills.length) row('skills', 'Skills (added)', (p.skills || []).join(', '), newSkills.join(', '), true);
+  if (x.location && !cur.locations.tiers.some((t) => t.places.some((pl) => x.location.toLowerCase().includes(pl.toLowerCase())))) row('location', `Add to “${cur.locations.tiers[0]?.label || 'Tier 1'}” places`, cur.locations.tiers[0]?.places.join(', '), x.location, !cur.locations.tiers[0]?.places.length);
+  if (x.hasMasters && !p.hasMasters) row('hasMasters', 'Has a Master’s / MBA', 'No', 'Yes', true);
+  if (x.hasCSDegree && !p.hasCSDegree) row('hasCSDegree', 'Computer Science degree', 'No', 'Yes', true);
+  if (x.suggestedTracks?.length) row('tracks', 'Tracks (ranked)', cur.tracks.map((t) => t.label).join(' → '), x.suggestedTracks.map((t) => `${t.label} (${t.evidence.slice(0, 3).join(', ')})`).join(' → '), !state.data.brief.completed);
+
+  $('#resume-review').innerHTML = `<section class="panel review" aria-labelledby="review-title">
+    <h2 id="review-title">What we found in ${esc(r.fileName)}</h2>
+    ${rows.length ? `<p class="hint">Tick what to copy into your brief. Nothing changes until you apply and then save.</p>
+    <table>
+      <thead><tr><th scope="col"><span class="sr-only">Apply</span></th><th scope="col">Field</th><th scope="col">Now</th><th scope="col">From your file</th></tr></thead>
+      <tbody>${rows.map((rw) => `<tr><td><input type="checkbox" data-apply="${rw.key}" ${rw.checked ? 'checked' : ''} aria-label="Apply ${esc(rw.label)}"></td><td><b>${esc(rw.label)}</b></td><td class="hint">${esc(rw.now ?? '') || '—'}</td><td>${esc(rw.next)}</td></tr>`).join('')}</tbody>
+    </table>` : '<p class="hint">We couldn’t pick out any details. Check the text below, or fill in the brief by hand.</p>'}
+    <details><summary class="hint">Text we read (${r.characters.toLocaleString()} characters)</summary><pre class="snippet">${esc(r.preview)}${r.characters > r.preview.length ? '…' : ''}</pre></details>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${rows.length ? '<button class="btn btn-accent" type="button" id="apply-resume">Apply selected</button>' : ''}
+      <button class="btn" type="button" id="close-review">Close</button>
+    </div>
+  </section>`;
+  $('#resume-review').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#close-review').addEventListener('click', () => { $('#resume-review').innerHTML = ''; });
+  $('#apply-resume')?.addEventListener('click', () => {
+    const pickd = new Set($$('[data-apply]:checked').map((c) => c.dataset.apply));
+    const b = collectBrief($('#brief-form'));
+    for (const k of ['name', 'school', 'degree', 'major', 'gradDate', 'yearsExperience', 'experienceSummary']) if (pickd.has(k)) b.profile[k] = x[k];
+    if (pickd.has('skills')) b.profile.skills = [...(b.profile.skills || []), ...newSkills];
+    if (pickd.has('hasMasters')) b.profile.hasMasters = true;
+    if (pickd.has('hasCSDegree')) b.profile.hasCSDegree = true;
+    if (pickd.has('location') && b.locations.tiers[0]) b.locations.tiers[0].places.push(x.location);
+    if (pickd.has('tracks')) {
+      const presets = state.data.meta.trackPresets;
+      b.tracks = x.suggestedTracks.map((t) => b.tracks.find((e) => e.id === t.id) || (() => { const pr = presets.find((q) => q.id === t.id); return { id: pr.id, label: pr.label, titleKeywords: [...pr.title], descKeywords: [...pr.desc], museCategories: [...pr.muse], salesComp: !!pr.salesComp }; })());
+    }
+    if (!pickd.size) { toast('Nothing selected.'); return; }
+    renderBrief(b).then(() => $('#brief-form').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    toast(`Applied ${pickd.size} item${pickd.size === 1 ? '' : 's'} — review, then Save brief.`);
   });
 }
 
@@ -545,7 +700,7 @@ function collectBrief(form) {
   collectTracks();
   const b = structuredClone(draft);
   const setPath = (obj, path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((o, k) => (o[k] ||= {}), obj)[last] = v; };
-  const LISTS = new Set(['coreIndustries', 'blocked.companies', 'blocked.keywords']);
+  const LISTS = new Set(['coreIndustries', 'blocked.companies', 'blocked.keywords', 'profile.skills']);
   $$('[name]', form).forEach((el) => {
     let v;
     if (el.type === 'checkbox') v = el.checked;

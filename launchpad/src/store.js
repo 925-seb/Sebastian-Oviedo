@@ -16,6 +16,7 @@ const FILES = {
   jobs: 'jobs.json', // every role ever surfaced: id → record (status, score, firstSeen, lastSeen…)
   runs: 'runs.json', // run log, newest first; old runs condensed into summaries
   learned: 'learned.json', // dismissal reason counts → standing rules
+  resume: 'resume.json', // the text of your uploaded resume / profile and what was found in it
 };
 
 export async function load(name, fallback) {

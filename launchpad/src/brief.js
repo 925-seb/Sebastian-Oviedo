@@ -36,6 +36,7 @@ export function defaultBrief() {
       gradDate: '', // YYYY-MM
       yearsExperience: 1,
       experienceSummary: '',
+      skills: [], // from your resume / profile, or typed in; postings that mention them get a small boost
       hasMasters: false,
       hasCSDegree: false,
       usCitizen: true,
@@ -108,6 +109,7 @@ export function normalizeBrief(input = {}) {
   r.minScore = clampNum(r.minScore, 0, 100, 55);
   r.maxNewPerRun = clampNum(r.maxNewPerRun, 1, 200, 15);
   for (const k of ['freshnessDays', 'staleDays', 'dedupeDays', 'expireDays', 'promoteAfter']) r[k] = clampNum(r[k], 1, 365, base.rules[k]);
+  brief.profile.skills = cleanList(brief.profile.skills);
   brief.profile.yearsExperience = clampNum(brief.profile.yearsExperience, 0, 50, 0);
   brief.locations.tiers = (brief.locations.tiers || []).slice(0, 5).map((t) => ({ label: String(t.label || ''), places: cleanList(t.places) }));
   brief.coreIndustries = cleanList(brief.coreIndustries);
