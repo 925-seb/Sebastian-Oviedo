@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Launchpad has no dependencies (Node >= 18.17 built-ins only).
+node --version

@@ -69,6 +69,9 @@ npm start
 
 Open the **Brief** tab, fill it in, and add employer boards. The board name is in the careers URL: `boards.greenhouse.io/<board>`, `jobs.lever.co/<board>`, or `jobs.ashbyhq.com/<board>`. Then save. Your first run starts immediately.
 
+### Run it in Figma
+`.figma/make/` holds the lifecycle scripts Figma uses to run Launchpad as a code layer. The in-Figma preview starts `node server.js` in demo mode (offline sample data) on Figma's port. Figma's **Publish** is not supported, because Figma only publishes static or Next.js builds and Launchpad needs its Node server; the `deploy` scripts exit with a message saying so.
+
 Other commands:
 
 ```bash
