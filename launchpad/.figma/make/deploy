@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+echo "Launchpad is a Node server app (its UI calls /api on server.js)." >&2
+echo "Figma publishing supports static and Next.js builds only, so publishing is not supported. Use the in-Figma dev preview instead." >&2
+exit 1

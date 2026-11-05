@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Run the Launchpad server with offline demo data on Figma's port/host.
+export LAUNCHPAD_DEMO="${LAUNCHPAD_DEMO:-1}"
+export HOST="${FIGMA_DEV_SERVER_HOST:-0.0.0.0}"
+exec node server.js
