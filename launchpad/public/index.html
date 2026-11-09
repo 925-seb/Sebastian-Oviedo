@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Launchpad</title>
+  <meta name="description" content="Your early-career opportunity finder: one brief, a daily run, one living dashboard.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316202b'/%3E%3Cpath d='M9 22 L16 8 L23 22 L16 18 Z' fill='%23e8964f'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=Space+Grotesk:wght@500..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="#dashboard" aria-label="Launchpad home">
+        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#f4f1ea" fill-opacity=".08"/><path d="M9 22 L16 8 L23 22 L16 18 Z" fill="#e8964f"/></svg>
+        <span>Launchpad</span>
+      </a>
+      <nav class="tabs" aria-label="Sections">
+        <a href="#dashboard" data-tab="dashboard">Dashboard</a>
+        <a href="#brief" data-tab="brief">Brief</a>
+        <a href="#memory" data-tab="memory">Memory</a>
+      </nav>
+      <div class="run-box">
+        <span id="run-meta" class="run-meta"></span>
+        <button id="run-now" class="btn btn-accent" type="button">Run now</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="view" class="wrap" tabindex="-1" aria-live="polite"></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

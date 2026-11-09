@@ -1,0 +1,15 @@
+{
+  "name": "launchpad",
+  "version": "1.0.0",
+  "description": "An automated early-career opportunity finder: write a brief once, and a daily run searches, verifies, scores and tracks roles for you.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "LAUNCHPAD_DEMO=1 node server.js",
+    "run-once": "node src/cli.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}
